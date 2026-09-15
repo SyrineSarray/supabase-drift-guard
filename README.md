@@ -99,24 +99,29 @@ schema:public | anon | USAGE missing in live
 
 ```yaml
 # .github/workflows/drift-guard.yml
-name: Privilege drift
+name: Grant Drift Check
 
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
 
 jobs:
-  check:
+  grant-drift:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: 20
 
-      - name: Check privilege drift
+      - name: Install Supabase CLI
+        run: npm install supabase
+
+      - name: Run drift check
         env:
           REMOTE_DATABASE_URL: ${{ secrets.REMOTE_DATABASE_URL }}
         run: npx supabase-drift-guard check .
