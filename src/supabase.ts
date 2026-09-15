@@ -18,6 +18,7 @@ export function getLocalDatabaseUrl(projectPath: string): string {
   const output = execSync("npx supabase status -o json", {
     cwd: projectPath,
     encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
   });
 
   const status = JSON.parse(output);

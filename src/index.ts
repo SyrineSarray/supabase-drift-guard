@@ -1,9 +1,15 @@
 #!/usr/bin/env node
+
 import path from "node:path";
 import fs from "node:fs";
-import { getGrants } from "./grants.js";
-import { compareGrants } from "./compare.js";
+
+import { getGrants, getSchemaPrivileges } from "./grants.js";
+
+import { compareGrants, compareSchemaPrivileges } from "./compare.js";
+
 import { startSupabase, stopSupabase, getLocalDatabaseUrl } from "./supabase.js";
+
+import { getExposedSchemas } from "./config.js";
 
 const [, , command, projectArg] = process.argv;
 
@@ -17,7 +23,7 @@ const projectPath = path.resolve(projectArg);
 const migrationsPath = path.join(projectPath, "supabase", "migrations");
 
 if (!fs.existsSync(migrationsPath)) {
-  console.error("Supabase migrations folder not found");
+  console.error(`Supabase migrations folder not found: ${migrationsPath}`);
   process.exit(1);
 }
 
@@ -28,32 +34,81 @@ if (!remoteUrl) {
   process.exit(1);
 }
 
+let supabaseStarted = false;
+
 try {
+
   startSupabase(projectPath);
+  supabaseStarted = true;
 
   const localUrl = getLocalDatabaseUrl(projectPath);
 
-  const expected = await getGrants(localUrl);
-  const live = await getGrants(remoteUrl);
+  const exposedSchemas = getExposedSchemas(projectPath);
 
-  const drift = compareGrants(expected, live);
+  /*
+   * Table grants
+   */
+  const expectedGrants = await getGrants(localUrl);
+  const liveGrants = await getGrants(remoteUrl);
 
-  if (drift.missingInLive.length === 0 && drift.extraInLive.length === 0) {
-    console.log("✓ No grant drift detected");
+  const grantDrift = compareGrants(expectedGrants, liveGrants);
+
+  /*
+   * Schema privileges
+   */
+  const expectedSchemaPrivileges = await getSchemaPrivileges(localUrl, exposedSchemas);
+
+  const liveSchemaPrivileges = await getSchemaPrivileges(remoteUrl, exposedSchemas);
+
+  const schemaDrift = compareSchemaPrivileges(expectedSchemaPrivileges, liveSchemaPrivileges);
+
+  const hasGrantDrift = grantDrift.missingInLive.length > 0 || grantDrift.extraInLive.length > 0;
+
+  const hasSchemaDrift = schemaDrift.missingInLive.length > 0 || schemaDrift.extraInLive.length > 0;
+
+  const hasDrift = hasGrantDrift || hasSchemaDrift;
+
+  if (!hasDrift) {
+    console.log("\n✓ No privilege drift detected");
     process.exitCode = 0;
   } else {
-    console.log("\n✗ GRANT DRIFT DETECTED\n");
+    console.log("\n✗ PRIVILEGE DRIFT DETECTED\n");
 
-    for (const grant of drift.missingInLive) {
-      console.log(`${grant.table_schema}.${grant.table_name} | ${grant.grantee} | ${grant.privilege_type} missing in live`);
+    /*
+     * Table grant drift
+     */
+    for (const grant of grantDrift.missingInLive) {
+      console.log(`${grant.table_schema}.${grant.table_name} | ` + `${grant.grantee} | ` + `${grant.privilege_type} missing in live`);
     }
 
-    for (const grant of drift.extraInLive) {
-      console.log(`${grant.table_schema}.${grant.table_name} | ${grant.grantee} | ${grant.privilege_type} extra in live`);
+    for (const grant of grantDrift.extraInLive) {
+      console.log(`${grant.table_schema}.${grant.table_name} | ` + `${grant.grantee} | ` + `${grant.privilege_type} extra in live`);
+    }
+
+    /*
+     * Schema privilege drift
+     */
+    for (const privilege of schemaDrift.missingInLive) {
+      console.log(`schema:${privilege.schema_name} | ` + `${privilege.grantee} | ` + `${privilege.privilege_type} missing in live`);
+    }
+
+    for (const privilege of schemaDrift.extraInLive) {
+      console.log(`schema:${privilege.schema_name} | ` + `${privilege.grantee} | ` + `${privilege.privilege_type} extra in live`);
     }
 
     process.exitCode = 1;
   }
+} catch (error) {
+  console.error("\nDrift check failed:", error instanceof Error ? error.message : error);
+
+  process.exitCode = 1;
 } finally {
-  stopSupabase(projectPath);
+  if (supabaseStarted) {
+
+    try {
+      stopSupabase(projectPath);
+    } catch {
+      console.error("Warning: failed to stop local Supabase");
+    }
+  }
 }
