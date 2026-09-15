@@ -5,7 +5,9 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "start": "tsx src/index.ts",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "",
@@ -18,8 +20,10 @@
   "devDependencies": {
     "@types/node": "^26.5.1",
     "@types/pg": "^8.23.1",
+    "husky": "^9.1.7",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "bin": {
     "supabase-drift-guard": "./dist/index.js"
