@@ -25,7 +25,15 @@ If `api.schemas` is missing or empty, the tool falls back to `["public"]`.
 
 ### Tracked roles
 
-By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` at your project root:
+By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked** — i.e. the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo:
+
+```
+your-supabase-project/
+├── supabase/
+│   ├── config.toml
+│   └── migrations/
+└── drift-guard.config.json   ← lives here
+```
 
 ```json
 {
@@ -34,6 +42,8 @@ By default only `anon` and `authenticated` are compared. To track additional or 
 ```
 
 If the file is absent, the tool behaves exactly as before — `anon` and `authenticated` only.
+
+Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case — list it as `"Teacher"` in the config, or the tool will silently find no matching role. If unsure, check what Postgres actually stored: `SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';`.
 
 ### Default privilege drift
 
@@ -55,7 +65,7 @@ Because a default privilege only applies to objects later created by the same ro
 
 - Node.js 18+
 - [Docker](https://docs.docker.com/get-docker/) (used by the Supabase CLI)
-- A Supabase project with `supabase/migrations` and `supabase/config.toml`
+- A Supabase project with `supabase/migrations` and `supabase/config.toml`, and optionally a `drift-guard.config.json` (see [Tracked roles](#tracked-roles))
 - Network access to the live Postgres instance
 
 The Supabase CLI is invoked via `npx`; you do not need a global install.
