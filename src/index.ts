@@ -3,13 +3,13 @@
 import path from "node:path";
 import fs from "node:fs";
 
-import { getGrants, getSchemaPrivileges } from "./grants.js";
+import { getGrants, getSchemaPrivileges, getDefaultPrivileges } from "./grants.js";
 
-import { compareGrants, compareSchemaPrivileges } from "./compare.js";
+import { compareGrants, compareSchemaPrivileges, compareDefaultPrivileges } from "./compare.js";
 
 import { startSupabase, stopSupabase, getLocalDatabaseUrl } from "./supabase.js";
 
-import { getExposedSchemas } from "./config.js";
+import { getExposedSchemas, loadRolesConfig } from "./config.js";
 
 const [, , command, projectArg] = process.argv;
 
@@ -45,28 +45,41 @@ try {
 
   const exposedSchemas = getExposedSchemas(projectPath);
 
+  const roles = loadRolesConfig(projectPath);
+
   /*
    * Table grants
    */
-  const expectedGrants = await getGrants(localUrl);
-  const liveGrants = await getGrants(remoteUrl);
+  const expectedGrants = await getGrants(localUrl, exposedSchemas, roles);
+  const liveGrants = await getGrants(remoteUrl, exposedSchemas, roles);
 
   const grantDrift = compareGrants(expectedGrants, liveGrants);
 
   /*
    * Schema privileges
    */
-  const expectedSchemaPrivileges = await getSchemaPrivileges(localUrl, exposedSchemas);
+  const expectedSchemaPrivileges = await getSchemaPrivileges(localUrl, exposedSchemas, roles);
 
-  const liveSchemaPrivileges = await getSchemaPrivileges(remoteUrl, exposedSchemas);
+  const liveSchemaPrivileges = await getSchemaPrivileges(remoteUrl, exposedSchemas, roles);
 
   const schemaDrift = compareSchemaPrivileges(expectedSchemaPrivileges, liveSchemaPrivileges);
+
+  /*
+   * Default privileges (ALTER DEFAULT PRIVILEGES)
+   */
+  const expectedDefaultPrivileges = await getDefaultPrivileges(localUrl, exposedSchemas, roles);
+
+  const liveDefaultPrivileges = await getDefaultPrivileges(remoteUrl, exposedSchemas, roles);
+
+  const defaultDrift = compareDefaultPrivileges(expectedDefaultPrivileges, liveDefaultPrivileges);
 
   const hasGrantDrift = grantDrift.missingInLive.length > 0 || grantDrift.extraInLive.length > 0;
 
   const hasSchemaDrift = schemaDrift.missingInLive.length > 0 || schemaDrift.extraInLive.length > 0;
 
-  const hasDrift = hasGrantDrift || hasSchemaDrift;
+  const hasDefaultDrift = defaultDrift.missingInLive.length > 0 || defaultDrift.extraInLive.length > 0;
+
+  const hasDrift = hasGrantDrift || hasSchemaDrift || hasDefaultDrift;
 
   if (!hasDrift) {
     console.log("\n✓ No privilege drift detected");
@@ -94,6 +107,25 @@ try {
 
     for (const privilege of schemaDrift.extraInLive) {
       console.log(`schema:${privilege.schema_name} | ` + `${privilege.grantee} | ` + `${privilege.privilege_type} extra in live`);
+    }
+
+    /*
+     * Default privilege drift
+     */
+    for (const privilege of defaultDrift.missingInLive) {
+      console.log(
+        `default:${privilege.schema_name} (owner ${privilege.grantor}) | ` +
+          `${privilege.grantee} | ` +
+          `${privilege.privilege_type} missing in live`,
+      );
+    }
+
+    for (const privilege of defaultDrift.extraInLive) {
+      console.log(
+        `default:${privilege.schema_name} (owner ${privilege.grantor}) | ` +
+          `${privilege.grantee} | ` +
+          `${privilege.privilege_type} extra in live`,
+      );
     }
 
     process.exitCode = 1;

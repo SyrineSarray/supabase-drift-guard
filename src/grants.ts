@@ -7,28 +7,33 @@ export type Grant = {
   privilege_type: string;
 };
 
-export async function getGrants(databaseUrl: string): Promise<Grant[]> {
+export async function getGrants(databaseUrl: string, schemas: string[], roles: string[]): Promise<Grant[]> {
   const client = new Client({
     connectionString: databaseUrl,
   });
 
   await client.connect();
 
-  const result = await client.query(`
-    SELECT
-      grantee,
-      table_schema,
-      table_name,
-      privilege_type
-    FROM information_schema.role_table_grants
-    WHERE table_schema = 'public'
-      AND grantee IN ('anon', 'authenticated')
-    ORDER BY grantee, table_name, privilege_type;
-  `);
+  try {
+    const result = await client.query(
+      `
+      SELECT
+        grantee,
+        table_schema,
+        table_name,
+        privilege_type
+      FROM information_schema.role_table_grants
+      WHERE table_schema = ANY($1::text[])
+        AND grantee = ANY($2::text[])
+      ORDER BY grantee, table_name, privilege_type;
+      `,
+      [schemas, roles],
+    );
 
-  await client.end();
-
-  return result.rows;
+    return result.rows;
+  } finally {
+    await client.end();
+  }
 }
 
 export type SchemaPrivilege = {
@@ -37,7 +42,11 @@ export type SchemaPrivilege = {
   privilege_type: string;
 };
 
-export async function getSchemaPrivileges(databaseUrl: string, schemas: string[]): Promise<SchemaPrivilege[]> {
+export async function getSchemaPrivileges(
+  databaseUrl: string,
+  schemas: string[],
+  roles: string[],
+): Promise<SchemaPrivilege[]> {
   const client = new Client({
     connectionString: databaseUrl,
   });
@@ -56,7 +65,7 @@ export async function getSchemaPrivileges(databaseUrl: string, schemas: string[]
       CROSS JOIN (
         VALUES ('USAGE'), ('CREATE')
       ) AS p(privilege_type)
-      WHERE r.rolname IN ('anon', 'authenticated')
+      WHERE r.rolname = ANY($2::text[])
         AND n.nspname = ANY($1::text[])
         AND has_schema_privilege(
           r.rolname,
@@ -68,7 +77,52 @@ export async function getSchemaPrivileges(databaseUrl: string, schemas: string[]
         n.nspname,
         p.privilege_type;
       `,
-      [schemas],
+      [schemas, roles],
+    );
+
+    return result.rows;
+  } finally {
+    await client.end();
+  }
+}
+
+export type DefaultPrivilege = {
+  grantor: string;
+  grantee: string;
+  schema_name: string;
+  privilege_type: string;
+};
+
+export async function getDefaultPrivileges(
+  databaseUrl: string,
+  schemas: string[],
+  roles: string[],
+): Promise<DefaultPrivilege[]> {
+  const client = new Client({
+    connectionString: databaseUrl,
+  });
+
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      `
+      SELECT
+        grantor_role.rolname AS grantor,
+        grantee_role.rolname AS grantee,
+        COALESCE(n.nspname, '*') AS schema_name,
+        a.privilege_type
+      FROM pg_default_acl d
+      CROSS JOIN LATERAL aclexplode(d.defaclacl) AS a
+      JOIN pg_roles grantor_role ON grantor_role.oid = a.grantor
+      JOIN pg_roles grantee_role ON grantee_role.oid = a.grantee
+      LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
+      WHERE d.defaclobjtype = 'r'
+        AND (d.defaclnamespace = 0 OR n.nspname = ANY($1::text[]))
+        AND grantee_role.rolname = ANY($2::text[])
+      ORDER BY grantor_role.rolname, grantee_role.rolname, schema_name, a.privilege_type;
+      `,
+      [schemas, roles],
     );
 
     return result.rows;

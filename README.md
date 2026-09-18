@@ -10,8 +10,9 @@ Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT
 
 | Scope | Roles | Privileges |
 | --- | --- | --- |
-| Tables in `public` | `anon`, `authenticated` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER`, `TRUNCATE` |
+| Tables in every exposed schema | `anon`, `authenticated` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER`, `TRUNCATE` |
 | Exposed API schemas | `anon`, `authenticated` | `USAGE`, `CREATE` |
+| Default privileges on future tables in exposed schemas (plus any global default) | `anon`, `authenticated` | Whatever `ALTER DEFAULT PRIVILEGES` grants |
 
 Exposed schemas are read from `supabase/config.toml`:
 
@@ -21,6 +22,24 @@ schemas = ["public", "graphql_public"]
 ```
 
 If `api.schemas` is missing or empty, the tool falls back to `["public"]`.
+
+### Tracked roles
+
+By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` at your project root:
+
+```json
+{
+  "roles": ["anon", "authenticated", "service_role"]
+}
+```
+
+If the file is absent, the tool behaves exactly as before — `anon` and `authenticated` only.
+
+### Default privilege drift
+
+`ALTER DEFAULT PRIVILEGES` changes what a role automatically gets on *tables created later* — the tool reads `pg_default_acl` so a dashboard-applied default (e.g. "every future table gets `anon` `SELECT`") shows up as drift even though no table exists yet. A default set without `IN SCHEMA` (a global default, applying to every current and future schema) is reported as schema `*`.
+
+Because a default privilege only applies to objects later created by the same role that set it, drift is compared per owning role too — the same grant owned by a different role is reported as drift. This assumes local (`supabase start`) and hosted migrations both apply as `postgres`; if your project applies migrations as a different role, default-privilege comparisons may be noisier than expected.
 
 ## How it works
 
@@ -93,6 +112,8 @@ Drift:
 public.posts | anon | SELECT missing in live
 public.comments | authenticated | INSERT extra in live
 schema:public | anon | USAGE missing in live
+default:public (owner postgres) | anon | SELECT extra in live
+default:* (owner postgres) | authenticated | INSERT missing in live
 ```
 
 ## CI example
@@ -131,10 +152,12 @@ The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` incl
 
 ## Limitations
 
-- Table grants are scoped to the `public` schema only.
-- Only `anon` and `authenticated` roles are compared.
+- Only `anon` and `authenticated` roles are compared by default (configurable — see [Tracked roles](#tracked-roles)).
 - Expected state comes from applying repository migrations via local Supabase — migrations that never ran locally (or diverge from remote history) will surface as drift.
-- Does not compare RLS policies, column grants, function/routine grants, or roles other than the two above.
+- Does not compare RLS policies, column grants, or function/routine grants — these are deliberately out of scope, not planned gaps.
+- `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check — only grants to named roles are compared.
+- `getGrants`/`information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
+- No integration tests run the actual Postgres queries against a live database — the SQL in `grants.ts` is exercised only by manual/CI runs, not the automated test suite.
 
 ## License
 

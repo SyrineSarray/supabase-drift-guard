@@ -1,36 +1,35 @@
-import type { Grant, SchemaPrivilege } from "./grants.js";
+import type { Grant, SchemaPrivilege, DefaultPrivilege } from "./grants.js";
 
-function key(grant: Grant) {
+function diffByKey<T>(expected: T[], live: T[], keyFn: (item: T) => string) {
+  const expectedSet = new Set(expected.map(keyFn));
+  const liveSet = new Set(live.map(keyFn));
+
+  return {
+    missingInLive: expected.filter((item) => !liveSet.has(keyFn(item))),
+    extraInLive: live.filter((item) => !expectedSet.has(keyFn(item))),
+  };
+}
+
+function grantKey(grant: Grant) {
   return [grant.grantee, grant.table_schema, grant.table_name, grant.privilege_type].join(":");
 }
 
 export function compareGrants(expected: Grant[], live: Grant[]) {
-  const expectedSet = new Set(expected.map(key));
-  const liveSet = new Set(live.map(key));
-
-  const missingInLive = expected.filter((grant) => !liveSet.has(key(grant)));
-
-  const extraInLive = live.filter((grant) => !expectedSet.has(key(grant)));
-
-  return {
-    missingInLive,
-    extraInLive,
-  };
+  return diffByKey(expected, live, grantKey);
 }
-
 
 function schemaPrivilegeKey(p: SchemaPrivilege) {
   return [p.grantee, p.schema_name, p.privilege_type].join(":");
 }
 
 export function compareSchemaPrivileges(expected: SchemaPrivilege[], live: SchemaPrivilege[]) {
-  const expectedSet = new Set(expected.map(schemaPrivilegeKey));
+  return diffByKey(expected, live, schemaPrivilegeKey);
+}
 
-  const liveSet = new Set(live.map(schemaPrivilegeKey));
+function defaultPrivilegeKey(p: DefaultPrivilege) {
+  return [p.grantor, p.grantee, p.schema_name, p.privilege_type].join(":");
+}
 
-  return {
-    missingInLive: expected.filter((p) => !liveSet.has(schemaPrivilegeKey(p))),
-
-    extraInLive: live.filter((p) => !expectedSet.has(schemaPrivilegeKey(p))),
-  };
+export function compareDefaultPrivileges(expected: DefaultPrivilege[], live: DefaultPrivilege[]) {
+  return diffByKey(expected, live, defaultPrivilegeKey);
 }
