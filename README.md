@@ -1,10 +1,43 @@
 # supabase-drift-guard
 
-A CI gate that compares live Postgres grants and exposed-schema privileges with the declarations reconstructed from repository migrations, then blocks releases on unexplained privilege drift.
+**A CI gate that blocks releases when live Postgres privileges drift from what your migrations declare.**
 
-## Why
+Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT`, or use a schema, without that change ever landing in `supabase/migrations`. supabase-drift-guard reconstructs the expected privilege state from your migrations, compares it to production, and fails CI when they diverge.
 
-Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT`, or use a schema, without that change ever landing in `supabase/migrations`. Drift Guard reconstructs the expected privilege state from your migrations, compares it to production, and fails CI when they diverge.
+## Contents
+
+- [Quick start](#quick-start)
+- [What it checks](#what-it-checks)
+- [Configuration](#configuration)
+- [Default privilege drift](#default-privilege-drift)
+- [How it works](#how-it-works)
+- [CLI reference](#cli-reference)
+- [Example output](#example-output)
+- [CI integration](#ci-integration)
+- [Limitations](#limitations)
+- [License](#license)
+
+## Quick start
+
+```bash
+REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres" \
+  npx supabase-drift-guard check /path/to/your/supabase-project
+```
+
+Requirements:
+
+- Node.js 18+
+- [Docker](https://docs.docker.com/get-docker/) (the Supabase CLI needs it to run a local stack)
+- A Supabase project with `supabase/migrations` and `supabase/config.toml`
+- Network access to the live Postgres instance
+
+The Supabase CLI runs via `npx`; no global install needed. To pin `supabase-drift-guard` as a dev dependency instead of running it ad hoc:
+
+```bash
+npm install -D supabase-drift-guard
+```
+
+Exit code `0` means no drift. Exit code `1` means drift was detected, or the check itself failed (bad config, unreachable database, local replay failure). See [CLI reference](#cli-reference) for full usage details.
 
 ## What it checks
 
@@ -12,9 +45,15 @@ Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT
 | --- | --- | --- |
 | Tables in every exposed schema | `anon`, `authenticated` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER`, `TRUNCATE` |
 | Exposed API schemas | `anon`, `authenticated` | `USAGE`, `CREATE` |
-| Default privileges on future tables in exposed schemas (plus any global default) | `anon`, `authenticated` | Whatever `ALTER DEFAULT PRIVILEGES` grants |
+| Default privileges on future tables in exposed schemas, plus any global default | `anon`, `authenticated` | Whatever `ALTER DEFAULT PRIVILEGES` grants |
 
-Exposed schemas are read from `supabase/config.toml`:
+Roles shown as `anon`/`authenticated` are the defaults; see [Tracked roles](#tracked-roles) to track others.
+
+## Configuration
+
+### Exposed schemas
+
+Read from `supabase/config.toml`, already part of any Supabase project:
 
 ```toml
 [api]
@@ -25,7 +64,7 @@ If `api.schemas` is missing or empty, the tool falls back to `["public"]`.
 
 ### Tracked roles
 
-By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked**: the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo:
+By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked**: the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo.
 
 ```
 your-supabase-project/
@@ -43,46 +82,29 @@ your-supabase-project/
 
 If the file is absent, the tool behaves exactly as before: `anon` and `authenticated` only.
 
-Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case; list it as `"Teacher"` in the config, or the tool will silently find no matching role. If unsure, check what Postgres actually stored: `SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';`.
+Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case; list it as `"Teacher"` in the config, or the tool will silently find no matching role. If unsure, check what Postgres actually stored:
 
-### Default privilege drift
+```sql
+SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';
+```
 
-`ALTER DEFAULT PRIVILEGES` changes what a role automatically gets on *tables created later*: the tool reads `pg_default_acl` so a dashboard-applied default (e.g. "every future table gets `anon` `SELECT`") shows up as drift even though no table exists yet. A default set without `IN SCHEMA` (a global default, applying to every current and future schema) is reported as schema `*`.
+## Default privilege drift
+
+`ALTER DEFAULT PRIVILEGES` changes what a role automatically gets on *tables created later*. The tool reads `pg_default_acl` so a dashboard-applied default (e.g. "every future table gets `anon` `SELECT`") shows up as drift even though no table exists yet. A default set without `IN SCHEMA` (a global default, applying to every current and future schema) is reported as schema `*`.
 
 Because a default privilege only applies to objects later created by the same role that set it, drift is compared per owning role too: the same grant owned by a different role is reported as drift. This assumes local (`supabase start`) and hosted migrations both apply as `postgres`; if your project applies migrations as a different role, default-privilege comparisons may be noisier than expected.
 
 ## How it works
 
 1. Starts a local Supabase stack in the target project (`npx supabase start`) so migrations rebuild the expected database.
-2. Reads table grants and schema privileges from that local DB.
+2. Reads table grants, schema privileges, and default privileges from that local DB.
 3. Reads the same from the live database (`REMOTE_DATABASE_URL`).
 4. Diffs the two sets:
    - **missing in live**: declared by migrations, absent in production
    - **extra in live**: present in production, not declared by migrations
 5. Stops the local stack and exits `0` (clean) or `1` (drift / error).
 
-## Requirements
-
-- Node.js 18+
-- [Docker](https://docs.docker.com/get-docker/) (used by the Supabase CLI)
-- A Supabase project with `supabase/migrations` and `supabase/config.toml`, and optionally a `drift-guard.config.json` (see [Tracked roles](#tracked-roles))
-- Network access to the live Postgres instance
-
-The Supabase CLI is invoked via `npx`; you do not need a global install.
-
-## Install
-
-```bash
-npm install -D supabase-drift-guard
-```
-
-Or run without installing:
-
-```bash
-npx supabase-drift-guard check .
-```
-
-## Usage
+## CLI reference
 
 ```bash
 REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres" \
@@ -106,7 +128,7 @@ Use a connection string with enough privilege to read `information_schema` / cat
 | `0` | No privilege drift |
 | `1` | Drift detected, missing config, or check failed |
 
-### Example output
+## Example output
 
 Clean:
 
@@ -126,7 +148,7 @@ default:public (owner postgres) | anon | SELECT extra in live
 default:* (owner postgres) | authenticated | INSERT missing in live
 ```
 
-## CI example
+## CI integration
 
 ```yaml
 # .github/workflows/drift-guard.yml
@@ -166,7 +188,7 @@ The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` incl
 - Expected state comes from applying repository migrations via local Supabase: migrations that never ran locally (or diverge from remote history) will surface as drift.
 - Does not compare RLS policies, column grants, or function/routine grants: these are deliberately out of scope, not planned gaps.
 - `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check: only grants to named roles are compared.
-- `getGrants`/`information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
+- `information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
 - No integration tests run the actual Postgres queries against a live database: the SQL in `grants.ts` is exercised only by manual/CI runs, not the automated test suite.
 
 ## License
