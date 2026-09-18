@@ -4,7 +4,7 @@ A CI gate that compares live Postgres grants and exposed-schema privileges with 
 
 ## Why
 
-Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT`, or use a schema — without that change ever landing in `supabase/migrations`. Drift Guard reconstructs the expected privilege state from your migrations, compares it to production, and fails CI when they diverge.
+Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT`, or use a schema, without that change ever landing in `supabase/migrations`. Drift Guard reconstructs the expected privilege state from your migrations, compares it to production, and fails CI when they diverge.
 
 ## What it checks
 
@@ -25,7 +25,7 @@ If `api.schemas` is missing or empty, the tool falls back to `["public"]`.
 
 ### Tracked roles
 
-By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked** — i.e. the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo:
+By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked**: the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo:
 
 ```
 your-supabase-project/
@@ -41,15 +41,15 @@ your-supabase-project/
 }
 ```
 
-If the file is absent, the tool behaves exactly as before — `anon` and `authenticated` only.
+If the file is absent, the tool behaves exactly as before: `anon` and `authenticated` only.
 
-Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case — list it as `"Teacher"` in the config, or the tool will silently find no matching role. If unsure, check what Postgres actually stored: `SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';`.
+Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case; list it as `"Teacher"` in the config, or the tool will silently find no matching role. If unsure, check what Postgres actually stored: `SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';`.
 
 ### Default privilege drift
 
-`ALTER DEFAULT PRIVILEGES` changes what a role automatically gets on *tables created later* — the tool reads `pg_default_acl` so a dashboard-applied default (e.g. "every future table gets `anon` `SELECT`") shows up as drift even though no table exists yet. A default set without `IN SCHEMA` (a global default, applying to every current and future schema) is reported as schema `*`.
+`ALTER DEFAULT PRIVILEGES` changes what a role automatically gets on *tables created later*: the tool reads `pg_default_acl` so a dashboard-applied default (e.g. "every future table gets `anon` `SELECT`") shows up as drift even though no table exists yet. A default set without `IN SCHEMA` (a global default, applying to every current and future schema) is reported as schema `*`.
 
-Because a default privilege only applies to objects later created by the same role that set it, drift is compared per owning role too — the same grant owned by a different role is reported as drift. This assumes local (`supabase start`) and hosted migrations both apply as `postgres`; if your project applies migrations as a different role, default-privilege comparisons may be noisier than expected.
+Because a default privilege only applies to objects later created by the same role that set it, drift is compared per owning role too: the same grant owned by a different role is reported as drift. This assumes local (`supabase start`) and hosted migrations both apply as `postgres`; if your project applies migrations as a different role, default-privilege comparisons may be noisier than expected.
 
 ## How it works
 
@@ -57,8 +57,8 @@ Because a default privilege only applies to objects later created by the same ro
 2. Reads table grants and schema privileges from that local DB.
 3. Reads the same from the live database (`REMOTE_DATABASE_URL`).
 4. Diffs the two sets:
-   - **missing in live** — declared by migrations, absent in production
-   - **extra in live** — present in production, not declared by migrations
+   - **missing in live**: declared by migrations, absent in production
+   - **extra in live**: present in production, not declared by migrations
 5. Stops the local stack and exits `0` (clean) or `1` (drift / error).
 
 ## Requirements
@@ -162,12 +162,12 @@ The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` incl
 
 ## Limitations
 
-- Only `anon` and `authenticated` roles are compared by default (configurable — see [Tracked roles](#tracked-roles)).
-- Expected state comes from applying repository migrations via local Supabase — migrations that never ran locally (or diverge from remote history) will surface as drift.
-- Does not compare RLS policies, column grants, or function/routine grants — these are deliberately out of scope, not planned gaps.
-- `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check — only grants to named roles are compared.
+- Only `anon` and `authenticated` roles are compared by default (configurable; see [Tracked roles](#tracked-roles)).
+- Expected state comes from applying repository migrations via local Supabase: migrations that never ran locally (or diverge from remote history) will surface as drift.
+- Does not compare RLS policies, column grants, or function/routine grants: these are deliberately out of scope, not planned gaps.
+- `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check: only grants to named roles are compared.
 - `getGrants`/`information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
-- No integration tests run the actual Postgres queries against a live database — the SQL in `grants.ts` is exercised only by manual/CI runs, not the automated test suite.
+- No integration tests run the actual Postgres queries against a live database: the SQL in `grants.ts` is exercised only by manual/CI runs, not the automated test suite.
 
 ## License
 
