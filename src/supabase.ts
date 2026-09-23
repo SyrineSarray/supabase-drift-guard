@@ -1,17 +1,34 @@
 import { execSync } from "node:child_process";
 
+function stderrOf(error: unknown): string {
+  if (error && typeof error === "object" && "stderr" in error) {
+    return String((error as { stderr: unknown }).stderr).trim();
+  }
+  return "";
+}
+
 export function startSupabase(projectPath: string) {
-  execSync("npx supabase start", {
-    cwd: projectPath,
-    stdio: "ignore",
-  });
+  try {
+    execSync("npx supabase start", {
+      cwd: projectPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const stderr = stderrOf(error);
+    throw new Error(`npx supabase start failed${stderr ? `:\n${stderr}` : ""}`);
+  }
 }
 
 export function stopSupabase(projectPath: string) {
-  execSync("npx supabase stop", {
-    cwd: projectPath,
-    stdio: "ignore",
-  });
+  try {
+    execSync("npx supabase stop", {
+      cwd: projectPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch (error) {
+    const stderr = stderrOf(error);
+    throw new Error(`npx supabase stop failed${stderr ? `:\n${stderr}` : ""}`);
+  }
 }
 
 export function getLocalDatabaseUrl(projectPath: string): string {

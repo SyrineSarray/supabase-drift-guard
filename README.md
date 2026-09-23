@@ -63,6 +63,8 @@ schemas = ["public", "graphql_public"]
 
 If `api.schemas` is missing or empty, the tool falls back to `["public"]`.
 
+`supabase db pull` does **not** update this file, it only pulls database schema (tables, functions, etc.) into a migration. If you expose a new schema via the dashboard, add it to `api.schemas` here by hand, in the same change as any migration that touches it, otherwise this tool has no way to know the schema exists and silently skips checking every grant inside it.
+
 ### Tracked roles
 
 By default only `anon` and `authenticated` are compared. To track additional or different roles (e.g. a custom API-facing role, or `service_role`), add a `drift-guard.config.json` **to the project being checked**: the `<project-path>` you pass to `check`, next to its `supabase/` folder, not to `supabase-drift-guard`'s own repo.
