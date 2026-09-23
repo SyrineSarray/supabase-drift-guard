@@ -14,6 +14,7 @@ Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT
 - [CLI reference](#cli-reference)
 - [Example output](#example-output)
 - [CI integration](#ci-integration)
+- [Development](#development)
 - [Limitations](#limitations)
 - [License](#license)
 
@@ -182,6 +183,16 @@ jobs:
 
 The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` includes it). First runs may take longer while the local Supabase images pull.
 
+## Development
+
+```bash
+npm run build              # typecheck + compile
+npm test                   # fast, no Docker required (currently no unit tests)
+npm run test:integration   # real Postgres, via testcontainers, requires Docker
+```
+
+`test:integration` runs `src/grants.ts`'s actual SQL (`aclexplode`, `pg_default_acl`, `has_schema_privilege`, `information_schema.role_table_grants`) against an ephemeral `postgres:15-alpine` container, covering missing/extra grants, schema privileges, default-privilege drift, configurable/custom roles, and the documented `GRANT ... TO PUBLIC` gap. It's a separate script from `npm test` on purpose, so the fast path stays Docker-free.
+
 ## Limitations
 
 - Only `anon` and `authenticated` roles are compared by default (configurable; see [Tracked roles](#tracked-roles)).
@@ -189,7 +200,7 @@ The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` incl
 - Does not compare RLS policies, column grants, or function/routine grants: these are deliberately out of scope, not planned gaps.
 - `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check: only grants to named roles are compared.
 - `information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
-- No integration tests run the actual Postgres queries against a live database: the SQL in `grants.ts` is exercised only by manual/CI runs, not the automated test suite.
+- A role listed in the tracked-roles config that doesn't actually exist in the database produces a clean run, not an error: the query simply returns no rows for it.
 
 ## License
 
