@@ -197,7 +197,7 @@ npm run test:integration   # real Postgres, via testcontainers, requires Docker
 
 - Only `anon` and `authenticated` roles are compared by default (configurable; see [Tracked roles](#tracked-roles)).
 - Expected state comes from applying repository migrations via local Supabase: migrations that never ran locally (or diverge from remote history) will surface as drift.
-- Does not compare RLS policies, column grants, or function/routine grants: these are deliberately out of scope, not planned gaps.
+- Does not compare RLS policies, column grants, function/routine grants, or which schemas are exposed to the API: these are deliberately out of scope, not planned gaps. Exposed schemas in particular live in Supabase's platform configuration (Management API on hosted projects), not in Postgres itself, so if a schema is exposed via the dashboard without also being added to `supabase/config.toml`, this tool has no way to see it, only the tables/privileges within whatever schemas `config.toml` already declares are checked.
 - `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check: only grants to named roles are compared.
 - `information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
 - A role listed in the tracked-roles config that doesn't actually exist in the database produces a clean run, not an error: the query simply returns no rows for it.
