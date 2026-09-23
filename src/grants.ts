@@ -130,3 +130,26 @@ export async function getDefaultPrivileges(
     await client.end();
   }
 }
+export async function getExistingRoles(databaseUrl: string, roles: string[]): Promise<string[]> {
+  const client = new Client({
+    connectionString: databaseUrl,
+  });
+
+  await client.connect();
+
+  try {
+    const result = await client.query(
+      `
+      SELECT rolname
+      FROM pg_roles
+      WHERE rolname = ANY($1::text[])
+      ORDER BY rolname;
+      `,
+      [roles],
+    );
+
+    return result.rows.map((row) => row.rolname);
+  } finally {
+    await client.end();
+  }
+}

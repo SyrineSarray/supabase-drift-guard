@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getGrants } from "../../src/grants.js";
-import { compareGrants } from "../../src/compare.js";
+import { getExistingRoles, getGrants } from "../../src/grants.js";
+import { compareGrants, findRolesMissingEverywhere } from "../../src/compare.js";
 import { createFixture, type Fixture } from "./helpers/fixture.js";
 
 // Every scenario snapshots the same schema/role set twice, with a SQL change
@@ -127,9 +127,8 @@ describe("getGrants / compareGrants", () => {
   });
 
   it("returns no rows, not an error, for a configured role that does not exist", async () => {
-    // Documents current behavior: a typo'd role name in drift-guard.config.json
-    // produces a clean run rather than a failure. Not fixed here; see CLAUDE.md's
-    // "fail loud, never silent" rule for the follow-up decision this leaves open.
+    // Query-level behavior only. The CLI fails loud on this case separately,
+    // via getExistingRoles/findRolesMissingEverywhere below.
     await createTable("posts");
 
     const rows = await getGrants(fixture.url, [fixture.schema], ["role_that_does_not_exist"]);
@@ -158,5 +157,25 @@ describe("getGrants / compareGrants", () => {
     const rows = await getGrants(fixture.url, [fixture.schema], [configured]);
 
     expect(rows).toEqual([]);
+  });
+});
+
+describe("getExistingRoles / findRolesMissingEverywhere", () => {
+  it("returns only the configured roles that exist, matching case exactly", async () => {
+    const role = await fixture.createRole("Teacher");
+
+    const existing = await getExistingRoles(fixture.url, [role, role.toLowerCase(), "role_that_does_not_exist", "PUBLIC"]);
+
+    expect(existing).toEqual([role]);
+  });
+
+  it("flags a role only when it is missing from both local and live", async () => {
+    const liveOnly = await fixture.createRole("live_only");
+
+    const configured = [liveOnly, "role_that_does_not_exist"];
+    const localExisting: string[] = [];
+    const liveExisting = await getExistingRoles(fixture.url, configured);
+
+    expect(findRolesMissingEverywhere(configured, localExisting, liveExisting)).toEqual(["role_that_does_not_exist"]);
   });
 });

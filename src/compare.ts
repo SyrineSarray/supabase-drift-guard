@@ -33,3 +33,9 @@ function defaultPrivilegeKey(p: DefaultPrivilege) {
 export function compareDefaultPrivileges(expected: DefaultPrivilege[], live: DefaultPrivilege[]) {
   return diffByKey(expected, live, defaultPrivilegeKey);
 }
+
+export function findRolesMissingEverywhere(configured: string[], localExisting: string[], liveExisting: string[]) {
+  const existing = new Set([...localExisting, ...liveExisting]);
+
+  return configured.filter((role) => !existing.has(role));
+}

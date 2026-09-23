@@ -3,11 +3,18 @@
 import path from "node:path";
 import fs from "node:fs";
 
-import { getGrants, getSchemaPrivileges, getDefaultPrivileges } from "./grants.js";
+import { getGrants, getSchemaPrivileges, getDefaultPrivileges, getExistingRoles } from "./grants.js";
 
-import { compareGrants, compareSchemaPrivileges, compareDefaultPrivileges } from "./compare.js";
+import {
+  compareGrants,
+  compareSchemaPrivileges,
+  compareDefaultPrivileges,
+  findRolesMissingEverywhere,
+} from "./compare.js";
 
-import { startSupabase, stopSupabase, getLocalDatabaseUrl } from "./supabase.js";
+import { isSupabaseRunning, startSupabase, stopSupabase, getLocalDatabaseUrl } from "./supabase.js";
+
+import { listMigrationFileVersions, getAppliedMigrationVersions, diffMigrationVersions } from "./migrations.js";
 
 import { getExposedSchemas, loadRolesConfig } from "./config.js";
 
@@ -37,15 +44,55 @@ if (!remoteUrl) {
 let supabaseStarted = false;
 
 try {
-
-  startSupabase(projectPath);
-  supabaseStarted = true;
+  // Reuse a stack the user already has running, and leave it running afterwards.
+  if (isSupabaseRunning(projectPath)) {
+    console.log("Reusing already-running local Supabase stack");
+  } else {
+    startSupabase(projectPath);
+    supabaseStarted = true;
+  }
 
   const localUrl = getLocalDatabaseUrl(projectPath);
+
+  /*
+   * Ground truth check: the local database must have applied exactly the
+   * migrations on disk. A reused volume doesn't replay files added or deleted
+   * since it was built, which would make the expected side silently wrong.
+   */
+  const migrationDiff = diffMigrationVersions(
+    listMigrationFileVersions(migrationsPath),
+    await getAppliedMigrationVersions(localUrl),
+  );
+
+  if (migrationDiff.notApplied.length > 0 || migrationDiff.notOnDisk.length > 0) {
+    const details = [
+      ...migrationDiff.notApplied.map((version) => `  ${version}: file exists but not applied locally`),
+      ...migrationDiff.notOnDisk.map((version) => `  ${version}: applied locally but no matching file`),
+    ].join("\n");
+
+    throw new Error(
+      `local database does not match supabase/migrations:\n${details}\n` +
+        "Run `npx supabase db reset --local` (wipes local data) or `npx supabase stop --no-backup`, then re-run.",
+    );
+  }
 
   const exposedSchemas = getExposedSchemas(projectPath);
 
   const roles = loadRolesConfig(projectPath);
+
+  const missingRoles = findRolesMissingEverywhere(
+    roles,
+    await getExistingRoles(localUrl, roles),
+    await getExistingRoles(remoteUrl, roles),
+  );
+
+  if (missingRoles.length > 0) {
+    throw new Error(
+      `Configured role(s) not found in local or live database: ${missingRoles.join(", ")}. ` +
+        'Role names are case-sensitive (quoted "Teacher" vs unquoted teacher); ' +
+        "PUBLIC is a pseudo-role, not a role, and cannot be tracked.",
+    );
+  }
 
   /*
    * Table grants
@@ -136,7 +183,6 @@ try {
   process.exitCode = 1;
 } finally {
   if (supabaseStarted) {
-
     try {
       stopSupabase(projectPath);
     } catch {

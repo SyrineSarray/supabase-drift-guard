@@ -7,6 +7,19 @@ function stderrOf(error: unknown): string {
   return "";
 }
 
+// `supabase status` exits non-zero when the local stack isn't running.
+export function isSupabaseRunning(projectPath: string): boolean {
+  try {
+    execSync("npx supabase status", {
+      cwd: projectPath,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function startSupabase(projectPath: string) {
   try {
     execSync("npx supabase start", {
