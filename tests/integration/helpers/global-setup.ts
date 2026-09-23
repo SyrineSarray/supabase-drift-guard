@@ -1,14 +1,8 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 
-declare module "vitest" {
-  export interface ProvidedContext {
-    pgConnectionUri: string;
-  }
-}
+import "./provided-context.js";
 
-type Provide = (key: "pgConnectionUri", value: string) => void;
-
-export default async function setup({ provide }: { provide: Provide }) {
+export default async function setup({ provide }: { provide: (key: "pgConnectionUri", value: string) => void }) {
   const container: StartedPostgreSqlContainer = await new PostgreSqlContainer("postgres:15-alpine").start();
 
   provide("pgConnectionUri", container.getConnectionUri());

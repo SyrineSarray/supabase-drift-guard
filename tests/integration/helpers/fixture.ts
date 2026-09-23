@@ -1,5 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { Client } from "pg";
+
+import "./provided-context.js";
 import { inject } from "vitest";
 
 export type Fixture = {
