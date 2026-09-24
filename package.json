@@ -1,6 +1,6 @@
 {
   "name": "supabase-drift-guard",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "CI gate that blocks releases when live Supabase Postgres privileges drift from what your migrations declare.",
   "keywords": [
     "supabase",

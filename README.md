@@ -190,6 +190,16 @@ The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` incl
 
 ## Troubleshooting
 
+### `Cannot connect to live database (REMOTE_DATABASE_URL)`
+
+The tool tries the live connection first, before starting the local stack, so this fails within seconds. The most common causes:
+
+- The CI secret was created but never given a real value, or still holds an old password. GitHub does not re-run a job when a secret changes, so re-run the job after updating it.
+- The URL still contains the `[YOUR-PASSWORD]` placeholder copied from the dashboard (the tool reports this case explicitly).
+- The password contains characters such as `@`, `#` or `/` that break URL parsing. Percent-encode them (`@` is `%40`, `#` is `%23`, `/` is `%2F`).
+
+Copy the connection string from the Supabase dashboard (**Connect**) and paste the real database password into it.
+
 ### `local database does not match supabase/migrations`
 
 The local Supabase database keeps its data volume between `supabase start`/`stop` runs, and only replays migrations when that volume is first created. If you added, deleted, or renamed a migration file since then, the local database no longer reflects your repository, so the tool refuses to use it as the expected state. Rebuild it, then re-run:

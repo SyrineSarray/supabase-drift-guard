@@ -14,6 +14,8 @@ import {
 
 import { isSupabaseRunning, startSupabase, stopSupabase, getLocalDatabaseUrl } from "./supabase.js";
 
+import { assertCanConnect } from "./connection.js";
+
 import { listMigrationFileVersions, getAppliedMigrationVersions, diffMigrationVersions } from "./migrations.js";
 
 import { getExposedSchemas, loadRolesConfig } from "./config.js";
@@ -36,14 +38,31 @@ if (!fs.existsSync(migrationsPath)) {
 
 const remoteUrl = process.env.REMOTE_DATABASE_URL;
 
-if (!remoteUrl) {
-  console.error("Missing REMOTE_DATABASE_URL");
+if (!remoteUrl?.trim()) {
+  console.error(
+    "Missing REMOTE_DATABASE_URL: set it to the live database connection string.\n" +
+      "In GitHub Actions, add it as a repository secret and pass it to the step via env.",
+  );
   process.exit(1);
 }
+
+if (remoteUrl.includes("[YOUR-PASSWORD]")) {
+  console.error("REMOTE_DATABASE_URL still contains the [YOUR-PASSWORD] placeholder; replace it with the database password.");
+  process.exit(1);
+}
+
+const REMOTE_HINT =
+  "Check that REMOTE_DATABASE_URL (in CI, the repository secret) holds your project's connection string " +
+  "with the real database password (Supabase dashboard > Connect). " +
+  "If the password contains special characters such as @, # or /, percent-encode them.";
 
 let supabaseStarted = false;
 
 try {
+  // Checked before starting the local stack, so a bad live URL fails in
+  // seconds instead of after a multi-minute `supabase start`.
+  await assertCanConnect(remoteUrl, "live database (REMOTE_DATABASE_URL)", REMOTE_HINT);
+
   // Reuse a stack the user already has running, and leave it running afterwards.
   if (isSupabaseRunning(projectPath)) {
     console.log("Reusing already-running local Supabase stack");
@@ -53,6 +72,8 @@ try {
   }
 
   const localUrl = getLocalDatabaseUrl(projectPath);
+
+  await assertCanConnect(localUrl, "local Supabase database", "Check that `npx supabase status` shows a running local stack.");
 
   /*
    * Ground truth check: the local database must have applied exactly the
