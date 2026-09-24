@@ -161,21 +161,38 @@ default:* (owner postgres) | authenticated | INSERT missing in live
 name: Grant Drift Check
 
 on:
+  # Only PRs that can change the expected state, or the tool version.
   pull_request:
+    paths:
+      - "supabase/**"
+      - "drift-guard.config.json"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/drift-guard.yml"
   push:
     branches:
-      - main
+      - main # your default branch
+    paths:
+      - "supabase/**"
+      - "drift-guard.config.json"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/drift-guard.yml"
+  # Drift usually comes from the dashboard, not from a PR, so check daily too.
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
 
 jobs:
   grant-drift:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Install Supabase CLI
         run: npm install supabase
@@ -186,7 +203,9 @@ jobs:
         run: npx supabase-drift-guard check .
 ```
 
-The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` includes it). First runs may take longer while the local Supabase images pull.
+The job needs Docker available on the runner (GitHub-hosted `ubuntu-latest` includes it). Expect roughly 1.5 to 2 minutes per run: only the local Postgres container is started, but its image (about 1.3 GB) is pulled fresh on every GitHub-hosted runner.
+
+Why both triggers: the `paths` filter keeps unrelated PRs from paying that cost, and the daily `schedule` catches drift introduced from the dashboard or SQL editor, which never shows up in a PR. A scheduled failure notifies whoever last edited the workflow's cron line, by email, per GitHub's defaults. `workflow_dispatch` adds a manual "Run workflow" button.
 
 ## Troubleshooting
 
