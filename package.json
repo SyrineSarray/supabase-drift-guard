@@ -33,7 +33,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', 0o755)\"",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "start": "tsx src/index.ts",
