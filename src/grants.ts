@@ -7,6 +7,14 @@ export type Grant = {
   privilege_type: string;
 };
 
+// Table privileges are *effective*: what each tracked role can actually do,
+// including privileges inherited from PUBLIC and from role membership. A
+// `GRANT SELECT ... TO PUBLIC` therefore shows up as every tracked role gaining
+// SELECT, which is exactly how it exposes data through the API. The privilege
+// list is fixed to the SQL-standard seven so a newer server's extra privileges
+// (e.g. PG17 MAINTAIN) never create local/live noise. Relation kinds match
+// information_schema.table_privileges: tables, views, foreign and partitioned
+// tables.
 export async function getGrants(databaseUrl: string, schemas: string[], roles: string[]): Promise<Grant[]> {
   const client = new Client({
     connectionString: databaseUrl,
@@ -18,14 +26,21 @@ export async function getGrants(databaseUrl: string, schemas: string[], roles: s
     const result = await client.query(
       `
       SELECT
-        grantee,
-        table_schema,
-        table_name,
-        privilege_type
-      FROM information_schema.role_table_grants
-      WHERE table_schema = ANY($1::text[])
-        AND grantee = ANY($2::text[])
-      ORDER BY grantee, table_name, privilege_type;
+        r.rolname AS grantee,
+        n.nspname AS table_schema,
+        c.relname AS table_name,
+        p.privilege_type
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      CROSS JOIN pg_roles r
+      CROSS JOIN (
+        VALUES ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')
+      ) AS p(privilege_type)
+      WHERE n.nspname = ANY($1::text[])
+        AND c.relkind IN ('r', 'v', 'f', 'p')
+        AND r.rolname = ANY($2::text[])
+        AND has_table_privilege(r.oid, c.oid, p.privilege_type)
+      ORDER BY r.rolname, n.nspname, c.relname, p.privilege_type;
       `,
       [schemas, roles],
     );
@@ -93,6 +108,9 @@ export type DefaultPrivilege = {
   privilege_type: string;
 };
 
+// Unlike tables and schemas, default privileges can't be resolved to an
+// effective per-role answer, so a default granted to PUBLIC (grantee oid 0) is
+// always reported, as grantee "PUBLIC", whatever roles are tracked.
 export async function getDefaultPrivileges(
   databaseUrl: string,
   schemas: string[],
@@ -109,18 +127,18 @@ export async function getDefaultPrivileges(
       `
       SELECT
         grantor_role.rolname AS grantor,
-        grantee_role.rolname AS grantee,
+        COALESCE(grantee_role.rolname, 'PUBLIC') AS grantee,
         COALESCE(n.nspname, '*') AS schema_name,
         a.privilege_type
       FROM pg_default_acl d
       CROSS JOIN LATERAL aclexplode(d.defaclacl) AS a
       JOIN pg_roles grantor_role ON grantor_role.oid = a.grantor
-      JOIN pg_roles grantee_role ON grantee_role.oid = a.grantee
+      LEFT JOIN pg_roles grantee_role ON grantee_role.oid = a.grantee
       LEFT JOIN pg_namespace n ON n.oid = d.defaclnamespace
       WHERE d.defaclobjtype = 'r'
         AND (d.defaclnamespace = 0 OR n.nspname = ANY($1::text[]))
-        AND grantee_role.rolname = ANY($2::text[])
-      ORDER BY grantor_role.rolname, grantee_role.rolname, schema_name, a.privilege_type;
+        AND (a.grantee = 0 OR grantee_role.rolname = ANY($2::text[]))
+      ORDER BY grantor_role.rolname, grantee, schema_name, a.privilege_type;
       `,
       [schemas, roles],
     );

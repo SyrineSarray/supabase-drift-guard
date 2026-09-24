@@ -15,11 +15,10 @@ export type Fixture = {
 };
 
 // The container's default connection user is a superuser (the Postgres docker
-// entrypoint grants superuser to POSTGRES_USER). information_schema.role_table_grants
-// only shows grants visible to the connecting role as grantor, grantee, or via role
-// membership, so every role created here is implicitly visible to it. Point this
-// harness at a non-superuser connection and tests will start reporting phantom
-// missingInLive results unrelated to the code under test.
+// entrypoint grants superuser to POSTGRES_USER), which can create and drop the
+// fixture roles and schemas freely. Roles created here are NOLOGIN and
+// non-superuser: a superuser passes every has_*_privilege check, which would
+// make "missing" assertions pass for the wrong reason.
 export async function createFixture(): Promise<Fixture> {
   const url = inject("pgConnectionUri");
   const client = new Client({ connectionString: url });

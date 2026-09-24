@@ -47,9 +47,18 @@ Exit code `0` means no drift. Exit code `1` means drift was detected, or the che
 | --- | --- | --- |
 | Tables in every exposed schema | `anon`, `authenticated` | `SELECT`, `INSERT`, `UPDATE`, `DELETE`, `REFERENCES`, `TRIGGER`, `TRUNCATE` |
 | Exposed API schemas | `anon`, `authenticated` | `USAGE`, `CREATE` |
-| Default privileges on future tables in exposed schemas, plus any global default | `anon`, `authenticated` | Whatever `ALTER DEFAULT PRIVILEGES` grants |
+| Default privileges on future tables in exposed schemas, plus any global default | `anon`, `authenticated`, and always `PUBLIC` | Whatever `ALTER DEFAULT PRIVILEGES` grants |
 
 Roles shown as `anon`/`authenticated` are the defaults; see [Tracked roles](#tracked-roles) to track others.
+
+Table and schema privileges are **effective**: what each tracked role can actually do, not only what was granted to it by name. Access inherited from `PUBLIC` or from role membership counts. So a `GRANT SELECT ON posts TO PUBLIC`, which every role inherits and which exposes the table through the API, is reported as:
+
+```text
+public.posts | anon | SELECT extra in live
+public.posts | authenticated | SELECT extra in live
+```
+
+Default privileges can't be resolved per role that way, so a default granted to `PUBLIC` is reported with `PUBLIC` as the grantee, whatever roles you track.
 
 ## Configuration
 
@@ -86,7 +95,7 @@ your-supabase-project/
 
 If the file is absent, the tool behaves exactly as before: `anon` and `authenticated` only.
 
-Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case; list it as `"Teacher"` in the config. A configured role that exists in neither the local nor the live database fails the check with an error, since it's almost always a typo or case mismatch. A role that exists on only one side is fine: its grants show up as drift. `PUBLIC` is a pseudo-role, not a role, and can't be tracked. If unsure, check what Postgres actually stored:
+Role names are matched exactly as Postgres stores them. An unquoted `CREATE ROLE teacher` is folded to lowercase `teacher`, but a quoted `CREATE ROLE "Teacher"` keeps its case; list it as `"Teacher"` in the config. A configured role that exists in neither the local nor the live database fails the check with an error, since it's almost always a typo or case mismatch. A role that exists on only one side is fine: its grants show up as drift. Don't list `PUBLIC`: it isn't a role, and its grants already count toward every tracked role. If unsure, check what Postgres actually stored:
 
 ```sql
 SELECT rolname FROM pg_roles WHERE rolname ILIKE 'teacher';
@@ -249,15 +258,14 @@ npm test                   # fast, no Docker required (currently no unit tests)
 npm run test:integration   # real Postgres, via testcontainers, requires Docker
 ```
 
-`test:integration` runs `src/grants.ts`'s actual SQL (`aclexplode`, `pg_default_acl`, `has_schema_privilege`, `information_schema.role_table_grants`) against an ephemeral `postgres:15-alpine` container, covering missing/extra grants, schema privileges, default-privilege drift, configurable/custom roles, and the documented `GRANT ... TO PUBLIC` gap. It's a separate script from `npm test` on purpose, so the fast path stays Docker-free.
+`test:integration` runs `src/grants.ts`'s actual SQL (`has_table_privilege`, `has_schema_privilege`, `pg_default_acl`, `aclexplode`) against an ephemeral `postgres:15-alpine` container, covering missing/extra grants, schema privileges, default-privilege drift, configurable/custom roles, and access gained through `PUBLIC` or role membership. It's a separate script from `npm test` on purpose, so the fast path stays Docker-free.
 
 ## Limitations
 
 - Only `anon` and `authenticated` roles are compared by default (configurable; see [Tracked roles](#tracked-roles)).
 - Expected state comes from applying repository migrations via local Supabase: migrations that never ran locally (or diverge from remote history) will surface as drift.
 - Does not compare RLS policies, column grants, function/routine grants, or which schemas are exposed to the API: these are deliberately out of scope, not planned gaps. Exposed schemas in particular live in Supabase's platform configuration (Management API on hosted projects), not in Postgres itself, so if a schema is exposed via the dashboard without also being added to `supabase/config.toml`, this tool has no way to see it, only the tables/privileges within whatever schemas `config.toml` already declares are checked.
-- `GRANT ... TO PUBLIC` (on tables, schemas, or default privileges) is invisible to every check: only grants to named roles are compared.
-- `information_schema.role_table_grants` only surfaces grants visible to the connecting role (as grantor, grantee, or via role membership). This is transparent while `postgres` holds membership in every tracked role; if you track a custom role `postgres` doesn't belong to, some of its grants may go unseen.
+- A tracked role that is a superuser passes every privilege check, so tracking one reports it as having everything. Track API-facing roles, not admin roles.
 
 ## License
 

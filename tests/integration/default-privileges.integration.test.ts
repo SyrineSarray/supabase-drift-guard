@@ -77,4 +77,21 @@ describe("getDefaultPrivileges / compareDefaultPrivileges", () => {
     await fixture.query(`ALTER DEFAULT PRIVILEGES FOR ROLE "${owner}" IN SCHEMA "${outsideSchema}" REVOKE ALL ON TABLES FROM "${grantee}"`);
     await fixture.query(`DROP SCHEMA "${outsideSchema}" CASCADE`);
   });
+
+  it("always reports defaults granted to PUBLIC, with grantee PUBLIC", async () => {
+    // Scoped IN SCHEMA on purpose: a global PUBLIC default would be visible to
+    // every other test file running in parallel against the same container.
+    const owner = await fixture.createRole("owner");
+    const tracked = await fixture.createRole("anon");
+
+    const expected = await getDefaultPrivileges(fixture.url, [fixture.schema], [tracked]);
+    await fixture.query(
+      `ALTER DEFAULT PRIVILEGES FOR ROLE "${owner}" IN SCHEMA "${fixture.schema}" GRANT SELECT ON TABLES TO PUBLIC`,
+    );
+    const live = await getDefaultPrivileges(fixture.url, [fixture.schema], [tracked]);
+
+    expect(compareDefaultPrivileges(expected, live).extraInLive).toEqual([
+      { grantor: owner, grantee: "PUBLIC", schema_name: fixture.schema, privilege_type: "SELECT" },
+    ]);
+  });
 });

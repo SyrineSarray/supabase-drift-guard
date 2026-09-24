@@ -101,14 +101,39 @@ describe("getGrants / compareGrants", () => {
     await fixture.query(`DROP SCHEMA "${unexposedSchema}" CASCADE`);
   });
 
-  it("documents that GRANT ... TO PUBLIC is invisible to a named-role query", async () => {
-    const role = await fixture.createRole("anon");
+  it("reports a GRANT ... TO PUBLIC as access gained by every tracked role", async () => {
+    // Every role inherits PUBLIC's privileges, so this is exactly how anon
+    // gains read access through the API. It must show up as drift.
+    const anon = await fixture.createRole("anon");
+    const authenticated = await fixture.createRole("authenticated");
     await createTable("posts");
+
+    const expected = await getGrants(fixture.url, [fixture.schema], [anon, authenticated]);
     await fixture.query(`GRANT SELECT ON "${fixture.schema}".posts TO PUBLIC`);
+    const live = await getGrants(fixture.url, [fixture.schema], [anon, authenticated]);
 
-    const rows = await getGrants(fixture.url, [fixture.schema], [role]);
+    const result = compareGrants(expected, live);
 
-    expect(rows).toEqual([]);
+    expect(result.missingInLive).toEqual([]);
+    expect(result.extraInLive).toEqual([
+      { grantee: anon, table_schema: fixture.schema, table_name: "posts", privilege_type: "SELECT" },
+      { grantee: authenticated, table_schema: fixture.schema, table_name: "posts", privilege_type: "SELECT" },
+    ]);
+  });
+
+  it("reports access gained through role membership", async () => {
+    const anon = await fixture.createRole("anon");
+    const privileged = await fixture.createRole("privileged");
+    await createTable("posts");
+    await fixture.query(`GRANT INSERT ON "${fixture.schema}".posts TO "${privileged}"`);
+
+    const expected = await getGrants(fixture.url, [fixture.schema], [anon]);
+    await fixture.query(`GRANT "${privileged}" TO "${anon}"`);
+    const live = await getGrants(fixture.url, [fixture.schema], [anon]);
+
+    expect(compareGrants(expected, live).extraInLive).toEqual([
+      { grantee: anon, table_schema: fixture.schema, table_name: "posts", privilege_type: "INSERT" },
+    ]);
   });
 
   it("diffs multiple tracked roles independently with no cross-contamination", async () => {

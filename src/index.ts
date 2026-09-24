@@ -111,7 +111,7 @@ try {
     throw new Error(
       `Configured role(s) not found in local or live database: ${missingRoles.join(", ")}. ` +
         'Role names are case-sensitive (quoted "Teacher" vs unquoted teacher); ' +
-        "PUBLIC is a pseudo-role, not a role, and cannot be tracked.",
+        "PUBLIC is not a role; its grants are already counted toward every tracked role.",
     );
   }
 
