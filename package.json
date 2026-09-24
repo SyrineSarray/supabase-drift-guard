@@ -1,19 +1,46 @@
 {
   "name": "supabase-drift-guard",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "CI gate that blocks releases when live Supabase Postgres privileges drift from what your migrations declare.",
+  "keywords": [
+    "supabase",
+    "postgres",
+    "grants",
+    "privileges",
+    "drift",
+    "migrations",
+    "ci",
+    "security"
+  ],
+  "homepage": "https://github.com/SyrineSarray/supabase-drift-guard#readme",
+  "bugs": {
+    "url": "https://github.com/SyrineSarray/supabase-drift-guard/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SyrineSarray/supabase-drift-guard.git"
+  },
+  "license": "MIT",
+  "author": "sirine.sarray",
+  "type": "module",
+  "bin": {
+    "supabase-drift-guard": "./dist/index.js"
+  },
+  "files": [
+    "dist/**/*.js"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run --passWithNoTests",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "start": "tsx src/index.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "prepublishOnly": "npm run clean && npm run build"
   },
-  "keywords": [],
-  "author": "",
-  "license": "MIT",
-  "type": "module",
   "dependencies": {
     "pg": "^8.23.0",
     "smol-toml": "^1.8.0"
@@ -27,8 +54,5 @@
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
-  },
-  "bin": {
-    "supabase-drift-guard": "./dist/index.js"
   }
 }
