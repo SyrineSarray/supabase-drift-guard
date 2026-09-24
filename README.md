@@ -4,6 +4,8 @@
 
 Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT`, or use a schema, without that change ever landing in `supabase/migrations`. supabase-drift-guard reconstructs the expected privilege state from your migrations, compares it to production, and fails CI when they diverge.
 
+> Community project, not affiliated with or endorsed by Supabase.
+
 ## Contents
 
 - [Quick start](#quick-start)
@@ -28,7 +30,7 @@ REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432
 
 Requirements:
 
-- Node.js 18+
+- Node.js 20+
 - [Docker](https://docs.docker.com/get-docker/) (the Supabase CLI needs it to run a local stack)
 - A Supabase project with `supabase/migrations` and `supabase/config.toml`
 - Network access to the live Postgres instance
