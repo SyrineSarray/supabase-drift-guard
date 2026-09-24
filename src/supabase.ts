@@ -20,9 +20,30 @@ export function isSupabaseRunning(projectPath: string): boolean {
   }
 }
 
+// Every drift check is a Postgres catalog query, so only the database
+// container is needed. Skipping the other services avoids pulling and booting
+// about a dozen images, which dominates CI time on a fresh runner. The CLI
+// ignores names it doesn't recognize, so a renamed service in a future CLI
+// version just starts as before rather than breaking the check.
+const UNUSED_SERVICES = [
+  "gotrue",
+  "realtime",
+  "storage-api",
+  "imgproxy",
+  "kong",
+  "mailpit",
+  "postgrest",
+  "postgres-meta",
+  "studio",
+  "edge-runtime",
+  "logflare",
+  "vector",
+  "supavisor",
+].join(",");
+
 export function startSupabase(projectPath: string) {
   try {
-    execSync("npx supabase start", {
+    execSync(`npx supabase start --exclude ${UNUSED_SERVICES}`, {
       cwd: projectPath,
       stdio: ["ignore", "pipe", "pipe"],
     });

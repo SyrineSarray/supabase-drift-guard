@@ -100,7 +100,7 @@ Because a default privilege only applies to objects later created by the same ro
 
 ## How it works
 
-1. Starts a local Supabase stack in the target project (`npx supabase start`) so migrations rebuild the expected database. If a local stack is already running, it is reused and left running afterwards.
+1. Starts the local Supabase database in the target project (`npx supabase start`, with every service except Postgres excluded, since every check is a catalog query) so migrations rebuild the expected database. If a local stack is already running, it is reused and left running afterwards.
 2. Verifies the local database has applied exactly the migration files in `supabase/migrations`, no more and no less, and fails if not (see [Troubleshooting](#troubleshooting)).
 3. Verifies every tracked role exists in at least one of the two databases, and fails if one exists in neither.
 4. Reads table grants, schema privileges, and default privileges from that local DB.
@@ -221,10 +221,6 @@ GRANT "Teacher" TO "postgres" WITH ADMIN OPTION;
 ```
 
 It applied fine on the hosted project, but fails when replayed from a clean database, so `supabase start` or `db reset` fails. Remove `WITH ADMIN OPTION` (or the whole role-membership `GRANT`) from that migration, then rebuild the local database.
-
-### `supabase start` fails with `schema "..." does not exist`
-
-`supabase/config.toml` lists a schema under `[api] schemas` that no migration creates. PostgREST refuses to start until the schema exists. Add a migration that creates it (`CREATE SCHEMA ...`), or remove it from `api.schemas`.
 
 ## Development
 
