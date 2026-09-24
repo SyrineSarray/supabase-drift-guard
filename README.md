@@ -24,7 +24,7 @@ Dashboard clicks, hotfixes, and one-off SQL can change who can `SELECT`, `INSERT
 ## Quick start
 
 ```bash
-REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres" \
+REMOTE_DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres" \
   npx supabase-drift-guard check /path/to/your/supabase-project
 ```
 
@@ -34,6 +34,8 @@ Requirements:
 - [Docker](https://docs.docker.com/get-docker/) (the Supabase CLI needs it to run a local stack)
 - A Supabase project with `supabase/migrations` and `supabase/config.toml`
 - Network access to the live Postgres instance
+
+`REMOTE_DATABASE_URL` is your project's **Session pooler** connection string: in the Supabase dashboard, open **Connect**, pick **Session pooler**, and paste your database password into it. See [Connection string](#connection-string) for why not the direct connection.
 
 The Supabase CLI runs via `npx`; no global install needed. To pin `supabase-drift-guard` as a dev dependency instead of running it ad hoc:
 
@@ -124,7 +126,7 @@ Because a default privilege only applies to objects later created by the same ro
 ## CLI reference
 
 ```bash
-REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432/postgres" \
+REMOTE_DATABASE_URL="postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres" \
   npx supabase-drift-guard check /path/to/your/supabase-project
 ```
 
@@ -136,7 +138,17 @@ REMOTE_DATABASE_URL="postgresql://postgres:...@db.<project-ref>.supabase.co:5432
 | --- | --- | --- |
 | `REMOTE_DATABASE_URL` | yes | Postgres connection string for the live database to compare against |
 
-Use a connection string with enough privilege to read `information_schema` / catalog privilege views (typically the database password from the Supabase dashboard). Prefer a CI secret; do not commit the URL.
+### Connection string
+
+Use the **Session pooler** string from the dashboard (**Connect** > **Session pooler**):
+
+```text
+postgresql://postgres.<project-ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
+```
+
+Not the direct connection (`db.<project-ref>.supabase.co`): that host is IPv6-only unless your project has the IPv4 add-on, and GitHub-hosted runners have no IPv6, so it fails in CI. The session pooler works over IPv4.
+
+If the password contains characters such as `@`, `#` or `/`, percent-encode them (`@` is `%40`, `#` is `%23`, `/` is `%2F`). Store the URL as a CI secret; never commit it.
 
 ### Exit codes
 
@@ -226,6 +238,7 @@ The tool tries the live connection first, before starting the local stack, so th
 
 - The CI secret was created but never given a real value, or still holds an old password. GitHub does not re-run a job when a secret changes, so re-run the job after updating it.
 - The URL still contains the `[YOUR-PASSWORD]` placeholder copied from the dashboard (the tool reports this case explicitly).
+- The URL uses the direct host `db.<project-ref>.supabase.co` and the error is `ENETUNREACH` or a timeout. That host is IPv6-only, which GitHub-hosted runners can't reach; use the Session pooler string instead (see [Connection string](#connection-string)).
 - The password contains characters such as `@`, `#` or `/` that break URL parsing. Percent-encode them (`@` is `%40`, `#` is `%23`, `/` is `%2F`).
 
 Copy the connection string from the Supabase dashboard (**Connect**) and paste the real database password into it.
