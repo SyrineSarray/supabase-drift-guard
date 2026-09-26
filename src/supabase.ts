@@ -1,10 +1,32 @@
 import { execSync } from "node:child_process";
 
-function stderrOf(error: unknown): string {
-  if (error && typeof error === "object" && "stderr" in error) {
-    return String((error as { stderr: unknown }).stderr).trim();
+// The Supabase CLI reports some failures on stderr and others as a JSON
+// object on stdout ({"_tag":"Error","error":{"message":...}}), so check both
+// and unwrap the JSON message when there is one.
+function cliOutputOf(error: unknown): string {
+  if (!error || typeof error !== "object") {
+    return "";
   }
-  return "";
+
+  const { stderr, stdout } = error as { stderr?: unknown; stdout?: unknown };
+  const output = String(stderr ?? "").trim() || String(stdout ?? "").trim();
+
+  try {
+    const message = JSON.parse(output)?.error?.message;
+    if (typeof message === "string" && message) {
+      return message;
+    }
+  } catch {
+    // Not JSON: plain CLI text, returned as is.
+  }
+
+  return output;
+}
+
+function cliFailure(command: string, error: unknown): Error {
+  const output = cliOutputOf(error);
+  const hint = /docker daemon/i.test(output) ? "\nStart Docker, then re-run the check." : "";
+  return new Error(`${command} failed${output ? `:\n${output}` : ""}${hint}`);
 }
 
 // `supabase status` exits non-zero when the local stack isn't running.
@@ -48,8 +70,7 @@ export function startSupabase(projectPath: string) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    const stderr = stderrOf(error);
-    throw new Error(`npx supabase start failed${stderr ? `:\n${stderr}` : ""}`);
+    throw cliFailure("npx supabase start", error);
   }
 }
 
@@ -60,8 +81,7 @@ export function stopSupabase(projectPath: string) {
       stdio: ["ignore", "pipe", "pipe"],
     });
   } catch (error) {
-    const stderr = stderrOf(error);
-    throw new Error(`npx supabase stop failed${stderr ? `:\n${stderr}` : ""}`);
+    throw cliFailure("npx supabase stop", error);
   }
 }
 
